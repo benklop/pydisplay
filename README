@@ -1,0 +1,152 @@
+About pydisplay
+
+    http://pydisplay.sourceforge.net
+    
+    pydisplay is a portable library for small monochrome graphics displays.
+    We support most popular controllers for graphic LCDs, VFDs, OLEDs, and ELs.
+    
+    'Portable' means anything that pyparallel or libusb runs on.  Pydisplay 
+    is tested on Linux (SuSE, Kubuntu) and Windows XP.  It is also known to 
+    run on Mac OS X but this is not supported yet.
+    
+    The library has a common graphics interface that is compatible with the
+    Python Imaging Library. A two-layer driver model means that displays can
+    be used either with the common library framework, or independently for
+    direct access to the hardware interface.
+    
+    Displays currently supported:
+    
+        * Toshiba T6963C
+        * Samsung KS0108 or Hitachi HD61202
+        * Seiko/Epson SED1330, SED1335, or S1D13305
+        * Seiko/Epson SED1520
+        * Seiko/Epson SED2000 / Noritake T20A Vacuum Fluorescent Displays
+        * Noritake GU3900 Vacuum Fluorescent Displays
+        * Noritake GU7000 Vacuum Fluorescent Displays
+        * Noritake GU-355 and 372 Vacuum Fluorescent Displays
+        * Noritake GU128x32-311 Vacuum Fluorescent Display
+	* Babcock GD120C280 plasma display
+	* Planar EL320.240 with FTDI FT232R or FT245R USB adapter.
+
+Setup
+
+    For Linux:
+    
+        1.  Install pyparallel from:
+        
+                http://pyserial.sourceforge.net/pyparallel.html
+    
+        2.  Install Python Imaging Library (v1.1.5) from:
+        
+                http://www.pythonware.com/products/pil/
+                
+        3.  If you want to use the 'fast' mode for the graphics controllers,
+            you'll have to install the 'ctypes' module:
+        
+                http://starship.python.net/crew/theller/ctypes/
+                
+            I intend to remove this dependency soon, but not today.  The fast
+            mode is always optional and will fall back to pyparallel if
+            anything prevents it from loading.
+    
+        4.  As superuser, run:
+        
+                python setup.py install
+    
+        5.  As long as you're superuser, disconnect 'lp' from the parallel port.
+            On my system this is done with:
+            
+                modprobe -r lp
+                
+            Better still would be to stop the kernel from starting lp
+            automatically.  See your OS documentation about this.
+    
+        6.  Give yourself permission to talk to the parallel port:
+        
+                chmod a+rw /dev/parportN
+                
+            ...where N is the number of the parport you want to use, or
+            just use *.
+    
+        7.  Each driver has a small self-test, so to try out the Noritake
+            GU311 driver, type:
+            
+                python gu311.py
+                
+            ...and it will do something.
+            
+        8.  The expected wiring for each display is at the top of the driver
+            for that display.  If you don't like the default wiring, you can
+            change it, but some drivers will run in a 'fast mode' if you use
+            the default wiring.
+            
+        9.  An RSS ticker is provided as a sample application for character-
+            mode displays such as the Noritake T-series.
+
+                python rss.py
+
+        10. A internect clock with Google mail alert is provided as a sample 
+	    application for graphical displays.
+                
+                python superclock
+
+            You will have to edit gmail.py to provide your account credentials.
+ 
+        11. Write to me if none of this works.
+
+    For Windows:
+    
+        1.  Install Python 2.5
+		
+		http://www.python.org
+
+	    ....if you are already running Python 2.3 or 2.4, install ctypes
+
+	2.  Install pyparallel and giveio from:
+
+		http://pyserial.sourceforge.net/pyparallel.html
+                
+            ...giveio will work without a reboot, but it will be much faster
+            after you reboot.
+
+	3.  Install Python Imaging Library (v1.1.5) from:
+        
+                http://www.pythonware.com/products/pil/
+
+	4.  Unzip pydisplay into a directory.  Open a terminal to that
+	    directory and type:
+
+		python setup.py install
+
+        5.  Each driver has a small self-test, so to try out the Noritake
+            GU311 driver, type:
+            
+                python gu311.py
+                
+            ...and it will do something.
+            
+        6.  The expected wiring for each display is at the top of the driver
+            for that display.  If you don't like the default wiring, you can
+            change it.
+            
+        7.  An RSS ticker is provided as a sample application for character-
+            mode displays such as the Noritake T-series.
+
+                python rss.py
+
+        8. A internect clock with Google mail alert is provided as a sample 
+	    application for graphical displays.
+                
+                python superclock
+
+            You will have to edit gmail.py to provide your account credentials.
+ 
+        9. Write to me if none of this works.
+	
+
+        
+About the author
+
+    You can reach me at spacemarmot@users.sourceforge.net
+        
+    

@@ -1,0 +1,359 @@
+#!/usr/bin/python
+
+"""
+Script to show current time, weather, and rss feeds
+on a variety of graphics displays.
+
+Copyright (c) 2006 spacemarmot@users.sourceforge.net
+
+This file is released under the GNU Lesser General Public Licence.
+See the file LICENSE for details.
+"""
+
+import Image
+from ImageDraw import ImageDraw, Draw
+import ImageFont
+import ImageChops
+
+import feedparser # http://www.feedparser.org
+import time
+import sched
+import gmail
+import re
+import urllib
+import threading
+
+
+class SuperClock(object):
+    
+    def __init__(self, display, scheduler):
+        
+        self.display = display
+        self.scheduler = scheduler
+        self.schedule = self.scheduler.enter
+        
+        #fontpath = '/usr/X11/lib/X11/fonts/truetype/'
+        fontpath = './'
+        self.bigfont = ImageFont.truetype(fontpath + 'trebuc.ttf', 36)
+        self.font = ImageFont.truetype(fontpath + 'trebuc.ttf', 18)
+        self.smallfont = ImageFont.truetype(fontpath + 'trebuc.ttf', 12)
+        
+        self.gmail = gmail.GmailStatus()
+        self.newmail = 0
+        self.mailicon = Image.open('mail.gif').convert('L').point(lambda x: 255-x, mode='1')
+        
+        # regexes for parsing weather reports
+        self.icontag = re.compile('<icon_url_name>(.+).jpg</icon_url_name>')
+        self.tempftag = re.compile('<temp_f>(\d+)</temp_f>')
+    
+        self.enterStatusState()
+        self.reset()        
+
+    def enterStatusState(self):
+        
+        # clear existing state
+        
+        # schedule new state
+        self.updateWeather()
+        self.updateMail()
+        self.updateClock()
+        self.refreshDisplay()
+        self.refreshDisplay() # call twice to prime framebuffer
+
+        
+    def updateWeather(self):
+
+        self.schedule(10*60, 0, self.updateWeather, [] )
+        
+        def _updateWeather(self):
+
+            code = 'KBFI'
+            url = 'http://www.nws.noaa.gov/data/current_obs/%s.xml' % ( code )
+            s = urllib.urlopen(url).read()
+            
+            self.tempf = self.tempftag.search(s).groups(1)[0]
+            self.icon = self.icontag.search(s).groups(1)[0]
+        
+        
+        thread = threading.Thread(target=_updateWeather, args=[self])
+        thread.start()
+
+        
+    def updateMail(self):
+        self.schedule(1*60, 0, self.updateMail, [] )
+        thread = threading.Thread(target=self.gmail.refreshStatus)
+        thread.start()
+    
+    
+    def updateClock(self):
+        self.schedule(5, 0, self.updateClock, [] )
+        self.refreshDisplay()
+        
+    def reset(self):
+        self.schedule(10*60, 0, self.reset, [])
+        self.display.reset()
+        
+    def refreshDisplay(self):
+
+        display = self.display
+        
+        (W,H) = (display.W, display.H)
+        image = Image.new('1', (W,H), color=0)
+        draw = Draw(image)
+            
+        oldmail = self.newmail
+        self.newmail = self.gmail.messages
+        
+        if self.newmail > oldmail:
+            
+            self.schedule(0, 0, self.updateClock, [] )
+            
+            L = W/2 - 120
+            draw.bitmap((L,18), self.mailicon, fill=1)
+            text = 'you have %d new messages' % self.newmail
+            if self.newmail == 1: text = 'you have 1 new message'
+            draw.text((L+36,20), text, font=self.font, fill=1)
+            self.display.drawAlert(image)
+            time.sleep(10)
+            self.display.clear()
+
+        else:
+    
+            L = W-28-24; R = L+31
+            
+            #
+            # refresh the mail
+            #
+        
+            if self.newmail > 0:
+        
+                draw.bitmap((L,0), self.mailicon, fill=1)
+                draw.text((R,-8), '%d' % self.newmail, font=self.bigfont, fill=1)
+                
+            #
+            # refresh the clock
+            #
+            
+            t = time.localtime()
+            hour = t.tm_hour%12
+            if hour == 0: hour = 12
+            draw.text((-3,-8), '%2d:%02d' % (hour, t.tm_min), font=self.bigfont, fill=1)
+            
+            if self.newmail > 0:
+                draw.text((89,-1), time.strftime('%p %a'), font=self.smallfont, fill=1)
+                draw.text((89,12), time.strftime('%d %b'), font=self.smallfont, fill=1)
+            else:
+                draw.text((92,-1), time.strftime('%p %A'), font=self.smallfont, fill=1)
+                draw.text((92,12), time.strftime('%d %b %Y'), font=self.smallfont, fill=1)
+                
+            #
+            # refresh the weather
+            #
+            
+            L = W-32-42
+            if self.newmail > 0: L -= 54
+            R = L + 32
+            
+            try:
+                draw.text((L+30,-8), self.tempf, font=self.bigfont, fill=1)
+                draw.ellipse((R+37,0,R+41,4), outline=1, fill=0)
+                
+                icon = Image.open(self.icon+'.gif').convert('L').point(lambda x: 255-x, mode='1')
+                draw.bitmap((L,0), icon, fill=1)
+                
+            except: pass
+            
+            #
+            # redraw the screen
+            #
+            
+            self.display.drawClock(image)
+            self.refreshTicker()
+
+
+
+# code for rendering the clock graphics to the display is very device-specific
+#
+# here is a good example for a display that has overlayed graphics planes and
+# display memory offsets
+
+import noritake
+
+class ScrollingGU300(noritake.GU300):
+
+    def __init__(self, W=256, H=64, dev=0):
+        self.ticker = ''
+        self.framebuffer = 0x0800
+        noritake.GU300.__init__(self, W, H, dev)
+
+    def clear(self):
+        self.setCursorAddress(0)
+        self.writeData('\x00' * 0x2000)
+        
+    def drawClock(self, image):
+        
+        # render the text image to a byte string
+        image = image.transpose(Image.ROTATE_270).transpose(Image.FLIP_LEFT_RIGHT)
+        image = image.tostring()
+        
+        # draw the clock to the framebuffer
+        self.setCursorAddress(self.framebuffer)
+        self.writeData(image)
+        
+        # page in the framebuffer
+        self.setDisplayStartAddress(self.framebuffer)
+        self.framebuffer += 0x0800
+        self.framebuffer %= 0x1000
+        
+    def drawAlert(self, image):
+        
+        self.clear()
+        self.drawClock(image)
+   
+
+
+    
+# code for rendering the clock graphics to the display is very device-specific
+#
+# here is a good example for a display that has pageable offscreen memory, but
+# no graphics overlay
+
+class ScrollingGU3900DMA(noritake.GU3900DMA):
+    
+    def __init__(self, W=256, H=64, dev=0):
+        noritake.GU3900DMA.__init__(self, W, H, dev)
+        self.framebuffer = 0x0800
+        self.image = Image.new('1', (W, H), color=1)
+        self.ticker = ''
+        
+    def reset(self): pass
+
+    def drawClock(self, image):
+        
+        # render the image to a byte string
+        image = image.transpose(Image.ROTATE_270).transpose(Image.FLIP_LEFT_RIGHT)
+        image = image.tostring()
+        
+        self.image = image
+        
+        ## draw the clock to the framebuffer
+        #self.writeBitImage(composite, self.framebuffer)
+        #
+        ## page in the framebuffer
+        #self.setDisplayStartAddress(self.framebuffer)
+        #self.framebuffer += 0x0800
+        #self.framebuffer %= 0x1000
+        
+        #print time.time()
+        
+    
+# code for rendering the clock graphics to the display is very device-specific
+# 
+# this device has an offscreen display memory page *and* a separate RAM area
+# with a bitblt function with raster ops (copy, and, or, xor)
+
+
+class ScrollingGU3900(noritake.GU3900Par):
+#class ScrollingGU3900(noritake.GU3900Ser):
+#class ScrollingGU3900(noritake.GU3900USB):
+    
+    def __init__(self, W=256, H=64, dev=0):
+        noritake.GU3900Par.__init__(self, W, H, dev)
+        #noritake.GU3900Ser.__init__(self, W, H, dev)
+        #noritake.GU3900USB.__init__(self, W, H, dev)
+        self.defineWindow(1, 0, 0, 256, 4)
+        self.defineWindow(2, 0, 4, 256, 4)
+        self.writeRamImage(0, '\x00'*1024)
+        self.image = Image.new('1', (W, H), color=1)
+        self.ticker = ''
+        
+    def reset(self): pass
+
+    def drawClock(self, image):
+        
+        image = image.crop((0,0,256,32))
+        diff = ImageChops.difference(image, self.image)
+        self.image = image
+        
+        bbox = diff.getbbox()
+        if (bbox != None):
+            
+            (left, top, right, bottom) = bbox
+            
+            # render the image to a byte string
+            image = image.crop((left,0,right,32)).transpose(Image.ROTATE_270).transpose(Image.FLIP_LEFT_RIGHT)
+            image = image.tostring()
+            
+            self.selectWindow(1)
+            self.drawImage(left,0,right-left,4,image)
+        
+    def drawAlert(self, image):
+        
+        self.image = image
+        image = image.transpose(Image.ROTATE_270).transpose(Image.FLIP_LEFT_RIGHT)
+        image = image.tostring()
+        
+        self.selectWindow(0)
+        self.clear()
+        self.drawImage(0,0,256,8,image)
+        
+
+
+# code for rendering the clock graphics to the display is very device-specific
+
+import sys
+if sys.platform == 'linux2':
+    
+    import planar
+    
+    class ScrollingEL320(planar.EL320_240USB):
+        
+        def __init__(self, W=320, H=240, dev=0): 
+            el320_240.EL320_240USB.__init__(self)
+            self.display = self
+            self.display.W = W
+            self.display.H = H
+            self.clear()
+                
+        def clear(self):
+            self.write('\x00'*(40*240))
+        def reset(self): pass
+            
+        def drawClock(self, image):
+            
+            # render the text image to a byte string
+            image = image.crop((0,0,320,32)).tostring()
+            
+            # draw the clock to the framebuffer
+            self.write(image, self.W/8)
+            
+        def drawAlert(self, image):
+            
+            self.clear()
+            
+            # render the text image to a byte string
+            image = image.crop((0,16,320,48)).tostring()
+            
+            # draw the clock to the framebuffer
+            address = (120-16)*self.W/8
+            self.write(image, address)
+    
+        
+
+
+scheduler = sched.scheduler(time.time, time.sleep)
+
+display1 = ScrollingGU300(dev=1)
+clock1 = SuperClock(display1, scheduler)
+
+#display2 = ScrollingGU3900DMA(dev=1)
+#display2 = ScrollingGU3900(dev='/dev/ttyS0')
+#display2 = ScrollingGU3900(dev=0)
+#clock2 = SuperClock(display2, scheduler)
+
+#display4 = ScrollingEL320()
+#clock4 = SuperClock(display4, scheduler)
+
+scheduler.run()
+
+

@@ -1,0 +1,79 @@
+#!/usr/bin/python
+
+"""
+A nifty clock using a Babcock plasma display
+
+Copyright (c) 2006 spacemarmot@users.sourceforge.net
+
+This file is released under the GNU Lesser General Public Licence.
+See the file LICENSE for details.
+"""
+
+import sched
+import time
+scheduler = sched.scheduler(time.time, time.sleep)
+
+#W, H = 160, 80
+#W, H = 320, 240
+W, H = 280, 120
+
+import pydisplay
+display = pydisplay.MakeDisplay('GD120C280', dev=0, bus='par')
+#display = pydisplay.MakeDisplay('sed1330', W=W, H=H, dev=1, bus='par')
+#display = pydisplay.MakeDisplay('el320_240', dev=3, bus='par')
+
+import Image
+from ImageDraw import Draw
+image = Image.new('1', (W,H))
+draw = Draw(image)
+
+from gmail import GmailStatus, GmailAlert
+#GmailAlert(scheduler, display).start()
+
+W, H = display.W, display.H
+
+from widget import Clock, Date, Weather, Mail
+clock   = Clock(scheduler, (0, 0, 0, H*8/15))
+date    = Date(scheduler, (0, 0, 90, H*8/15))
+weather = Weather(scheduler, (0, H*9/15, 0, H*6/15))
+mail    = Mail(scheduler, (0, H*9/15, 0, H*6/15), GmailStatus())
+
+import os
+def isMonitorOn():
+    result = True
+    try:
+        on = os.popen('xset -q | grep "Monitor is Off"')
+        on = on.read()
+        result = len(on) == 0
+    finally:
+        return result
+    
+def refresh():
+    
+    image = Image.new('1', (W,H))
+    
+    if isMonitorOn():
+        
+        draw = Draw(image)
+        
+        clock.refresh(draw)
+        clock.refresh(draw)
+        #date.X = clock.W + 4
+        #date.refresh(draw)
+        #date.refresh(draw)
+        weather.refresh(draw)
+        weather.refresh(draw)
+        mail.X = weather.W + 8
+        mail.refresh(draw)
+        mail.refresh(draw)
+            
+    display.bitmap((0,0), image)
+        
+    scheduler.enter(1,0, refresh, [])
+        
+    
+
+
+refresh()
+
+scheduler.run()

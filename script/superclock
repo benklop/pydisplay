@@ -1,0 +1,134 @@
+#!/usr/bin/python
+
+"""
+Script to show current time, weather, and rss feeds
+on a variety of graphics displays.
+
+Copyright (c) 2006 spacemarmot@users.sourceforge.net
+
+This file is released under the GNU Lesser General Public Licence.
+See the file LICENSE for details.
+"""
+
+import Image
+from ImageDraw import ImageDraw, Draw
+
+import time
+import sched
+
+from widget import Clock, Date, Weather, Mail
+from gmail import GmailAlert
+from ticker import RssTicker
+
+            
+class SuperClock(object):
+    
+    def __init__(self, display, scheduler, feeds):
+        
+        self.display   = display
+        self.scheduler = scheduler
+        self.schedule  = scheduler.enter
+        
+        if display.H < 64:
+            Htop = 20; Hbottom = 14
+        elif display.H < 80:
+            Htop = 41; Hbottom = 24
+        else:
+            Htop = 48; Hbottom = 32
+            
+        self.Hclock = Htop
+        self.clock   = Clock( scheduler,  (0,0,0,Htop))
+        self.date    = Date(  scheduler,  (0,0,64,Htop))
+        self.mail    = Mail(  scheduler,  (0,0,0,Htop))
+        self.weather = Weather(scheduler, (0,0,0,Htop))
+        
+        self.mailalert = GmailAlert(scheduler, display)
+        self.mailalert.start()
+
+        Y = Htop
+        self.ticker = RssTicker(scheduler, (0,Y,display.W,Hbottom), display, feeds)
+        self.ticker.start()
+        
+        self.refresh()
+        self.refresh()
+
+
+    def start(self, interval=5):
+        
+        self.schedule(interval, 0, self.start, [interval] )
+        self.refresh()
+        
+        
+    def refresh(self):
+
+        W,H = self.display.W, self.Hclock
+        image = Image.new('1', (W,H), color=0)
+        draw = Draw(image)
+        
+        self.clock.refresh(draw)
+
+        newmail = self.mail.mail.messages # demeter!
+
+        R = W - self.clock.W
+
+        if newmail > 0:
+            
+            if self.mail.W < R:
+                
+                self.mail.X = W - self.mail.W
+                R = W - (self.clock.W + self.mail.W)
+                self.mail.refresh(draw)
+                
+                if self.weather.W < R:
+                    
+                    self.weather.X = W - self.mail.W - self.weather.W
+                    R = W - (self.clock.W + self.weather.W + self.mail.W)
+                    self.weather.refresh(draw)
+        
+        elif self.weather.W < R:
+            
+            self.weather.X = W - self.weather.W
+            R = W - (self.clock.W + self.weather.W)
+            self.weather.refresh(draw)
+            
+        if self.date.W < R:
+          
+            self.date.X = self.clock.W + (R - self.date.W)/2
+            #self.date.refresh(draw)
+                    
+        self.display.bitmap((0,0), image, fill=1)
+            
+        self.ticker.refresh()
+
+
+from quote import YahooStockQuote
+
+feeds = [
+    #YahooStockQuote('^GSPC', '^TNX', 'XAUUSD=X'),
+    "http://www.rssweather.com/zipcode/98105/rss.php"
+]
+
+
+scheduler = sched.scheduler(time.time, time.sleep)
+
+import pydisplay
+
+display = pydisplay.MakeDisplay('GU300', dev=2, fastwrite=True)
+SuperClock(display, scheduler, feeds).start()
+
+#display = pydisplay.MakeDisplay('GU3900',dev=0)
+#display = pydisplay.MakeDisplay('GU3900', dev='/dev/ttyS0', bus='ser')
+#SuperClock(display, scheduler, feeds).start()
+
+#display = pydisplay.MakeDisplay('GU3900DMA', dev=1)
+#SuperClock(display, scheduler, feeds).start()
+
+#display = pydisplay.MakeDisplay('SED1330', W=160, H=80, dev=0, bus='usb')
+#SuperClock(display, scheduler, feeds).start()
+
+#display = pydisplay.MakeDisplay('EL320_240', dev=1, bus='par')
+#SuperClock(display, scheduler, feeds).start()
+
+scheduler.run()
+
+

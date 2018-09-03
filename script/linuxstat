@@ -1,0 +1,257 @@
+#!/usr/bin/python
+
+"""
+Script to show Linux system stats on a Noritake GU3900
+
+Copyright (c) 2006 spacemarmot@users.sourceforge.net
+
+This file is released under the GNU Lesser General Public Licence.
+See the file LICENSE for details.
+"""
+
+import Image
+from ImageDraw import ImageDraw, Draw
+import ImageFont
+
+import os
+import platform
+
+from widget import Widget
+
+INTERVAL = 5
+
+import time
+import sched
+scheduler = sched.scheduler(time.time, time.sleep)
+
+font20 = ImageFont.truetype('DejaVuSans.ttf', 20)
+font16 = ImageFont.truetype('DejaVuSans.ttf', 16)
+font9  = ImageFont.truetype('DejaVuSans.ttf', 9)
+
+import pydisplay
+#display = pydisplay.MakeDisplay('gu3900dma', dev=1)
+#display = pydisplay.MakeDisplay('gu300', dev=0)
+display = pydisplay.MakeDisplay('gu3900', dev='/dev/ttyS0', bus='ser')
+
+
+from widget import Widget
+import gmail
+import threading
+
+class Mail(Widget):
+
+    def __init__(self, scheduler, rect, mail=None):
+        
+        Widget.__init__(self, scheduler, rect)        
+        
+        if mail == None: mail = gmail.GmailStatus()
+        self.mail = mail
+        self.icon = Image.open('mail.gif').resize((self.H,self.H))
+        
+        self.update()
+        
+    def update(self):
+    
+        self.schedule(1*60, 0, self.update, [])
+        thread = threading.Thread(target=self.mail.refresh)
+        thread.start()
+        
+    def refresh(self, draw):
+
+        newmail = self.mail.messages
+        if newmail > 0:
+            
+            text = 'you have %d new messages' % newmail
+            if newmail == 1: text = 'you have 1 new message'
+            
+            font = None
+            (w,h) = (0,0)
+            
+            for size in xrange(100):
+                font = ImageFont.truetype('trebuc.ttf', 100-size)
+                (w,h) = font.getsize(text)
+                if w < self.W - (h+4): break
+                
+            draw.text((h+6,(self.H-h)/2), text, font=font, fill=1)
+    
+            self.icon = Image.open('mail.gif').resize((h,h))
+            draw.bitmap((0,(self.H-h)/2), self.icon, fill=1)
+            
+            del font
+
+            
+mail = Mail(scheduler, (0,0, display.W, display.H))
+def showMail():
+
+    if mail.mail.messages > 0:
+        
+        (W,H) = (display.W, display.H)
+        image = Image.new('1', (W,H))
+        draw = Draw(image)
+        
+        mail.refresh(draw)
+        
+        display.bitmap((0,0), image)
+        time.sleep(INTERVAL)
+
+
+def getIpAddr():
+    
+    ipaddr = os.popen('/sbin/ifconfig eth0 | grep "inet addr"')
+    ipaddr = ipaddr.read().split()
+    ipaddr = ipaddr[1].split(':')[1]
+    
+    return ipaddr
+
+def getUptime():
+    
+    uptime = open('/proc/uptime')
+    uptime = uptime.read().split()
+    uptime = float(uptime[0])
+
+    minutes = uptime / 60
+    hours   = minutes / 60
+    days    = int(hours / 24)
+
+    hours   = int(hours % 24)
+    minutes = int(minutes % 60)
+    
+    return (days, hours, minutes)
+
+    
+from widget import Template
+    
+tuxicon = Template((0,0), 'tux.jpg')
+
+def showHost():
+    
+    (W,H) = (display.W, display.H)
+    image = Image.new('1', (W,H))
+    draw = Draw(image)
+
+    tuxicon.refresh(draw)
+    
+    hostname = platform.node()
+    ipaddr = getIpAddr()
+    text = '%s %s' % (hostname, ipaddr)
+    (w,h) = draw.textsize(text, font16)
+    draw.text((60,0), text=text, font=font16, fill=111)
+    
+    text = '%s %s' % (platform.system(), platform.release())
+    (w,h) = draw.textsize(text, font16)
+    draw.text((60,0+20), text, font=font16, fill=111)
+
+    (days, hours, minutes) = getUptime()
+    text = 'uptime %dd %dh %dm' % (days, hours, minutes)
+    (w,h) = draw.textsize(text, font16)
+    draw.text((60,0+40), text, font=font16, fill=111)
+    
+    #image.show(command='ida')
+    
+    display.bitmap((0,0), image)
+    
+    time.sleep(INTERVAL)
+
+from linuxstat import CpuType, LoadAvg, CpuBusy, CpuTemp
+
+cputype = CpuType(scheduler, (0,0,200,32))
+loadavg = LoadAvg(scheduler, (0,36,80,32))
+cpubusy = CpuBusy(scheduler, (90,36,80,32))
+cputemp = CpuTemp(scheduler, (190,36,80,32))
+
+def showProc():
+    
+    for i in xrange(INTERVAL):
+        
+        (W,H) = (display.W, display.H)
+        image = Image.new('1', (W,H))
+        draw = Draw(image)
+    
+        cputype.refresh(draw)
+        loadavg.refresh(draw)
+        cpubusy.refresh(draw)
+        cputemp.refresh(draw)
+        
+        display.bitmap((0,0), image, fill='#fff')
+        
+        time.sleep(1)
+
+from linuxstat import MemFree, SwapFree, DF
+
+memfree  = MemFree( scheduler, (0,12,128,32))
+swapfree = SwapFree(scheduler, (0,40,128,32))
+
+diskfree = DF(scheduler, (128,4,128,64))
+
+def showStorage():
+    
+    diskfree.update()
+    
+    for i in xrange(INTERVAL):
+        
+        (W,H) = (display.W, display.H)
+        image = Image.new('1', (W,H))
+        draw = Draw(image)
+    
+        memfree.refresh(draw)
+        swapfree.refresh(draw)
+
+        diskfree.refresh(draw)        
+        
+        display.bitmap((0,0), image, fill='#fff')
+        
+        time.sleep(1)
+    
+from widget import Clock, Date
+clock = Clock(scheduler, (0,80,320,80))
+date  =  Date(scheduler, (0,160,320,80))        
+
+def showTime():
+    
+    (W,H) = (display.W, display.H)
+    image = Image.new('1', (W,H))
+    draw = Draw(image)
+
+    clock.refresh(draw)
+    #date.refresh(draw)
+ 
+    display.bitmap((0,0), image)
+    
+    time.sleep(INTERVAL)
+    
+    
+def blankDisplay(interval=0):
+    (W,H) = (display.W, display.H)
+    image = Image.new('1', (W,H))
+    display.bitmap((0,0), image)
+    time.sleep(interval)
+    
+def isMonitorOn():
+    result = True
+    try:
+        on = os.popen('xset -q | grep "Monitor is Off"')
+        on = on.read()
+        result = len(on) == 0
+    finally:
+        return result
+    
+def showStats(s):
+   
+    if False: #isMonitorOn():
+        #showHost()
+        showMail()
+        showProc()
+        showStorage()
+        showMail()
+        showProc()
+        showStorage()
+    else:
+        showMail()
+        blankDisplay(10)
+    
+    s.enter(0,0,showStats,[s])
+
+
+showStats(scheduler)
+
+scheduler.run()
